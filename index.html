@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fi Live Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'SF Mono', 'Menlo', monospace;
+      background: #000;
+      color: #f3f4f6;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    
+    .camera-container {
+      position: relative;
+      width: 100%;
+      height: 45vh;
+      background: #000;
+    }
+    
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .status-bar {
+      padding: 8px;
+      background: #1f2937;
+      text-align: center;
+      font-size: 0.8rem;
+    }
+    
+    .status-bar.found { background: #16a34a; }
+    .status-bar.error { background: #dc2626; }
+    .status-bar.working { background: #d97706; }
+    
+    .controls {
+      padding: 10px;
+      background: #111827;
+      overflow-y: auto;
+      max-height: 55vh;
+    }
+    
+    .btn {
+      width: 100%;
+      padding: 12px;
+      font-size: 1rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .btn-primary { background: #16a34a; color: white; }
+    .btn-stop { background: #dc2626; color: white; }
+    .btn-secondary { background: #374151; color: white; }
+    .btn-scan { background: #2563eb; color: white; }
+    
+    .btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
+    .btn-row .btn { flex: 1; margin: 0; }
+    
+    .debug-section {
+      background: #1e293b;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 8px;
+      font-size: 0.7rem;
+    }
+    
+    .debug-section summary {
+      color: #fbbf24;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    
+    .debug-images {
+      display: flex;
+      gap: 4px;
+      margin: 6px 0;
+      overflow-x: auto;
+    }
+    
+    .debug-images img {
+      height: 50px;
+      border: 1px solid #475569;
+      border-radius: 3px;
+    }
+    
+    #debugText {
+      background: #0f172a;
+      padding: 6px;
+      border-radius: 4px;
+      color: #94a3b8;
+      max-height: 80px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    
+    .detected-banner {
+      background: #14532d;
+      border: 2px solid #4ade80;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+      display: none;
+    }
+    
+    .detected-banner.show { display: block; }
+    
+    .detected-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .detected-header h3 { color: #4ade80; font-size: 0.85rem; }
+    
+    .detected-list { max-height: 150px; overflow-y: auto; }
+    
+    .detected-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #052e16;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 4px;
+    }
+    
+    .detected-serial { color: #86efac; font-size: 1rem; letter-spacing: 1px; }
+    .detected-confidence { color: #6b7280; font-size: 0.65rem; }
+    
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    
+    .btn-sm.add { background: #16a34a; color: white; }
+    .btn-sm.skip { background: #374151; color: white; margin-left: 4px; }
+    
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid #374151;
+      font-size: 0.8rem;
+    }
+    
+    .settings-row label { color: #9ca3af; }
+    
+    .toggle {
+      width: 44px;
+      height: 24px;
+      background: #374151;
+      border-radius: 12px;
+      position: relative;
+      cursor: pointer;
+    }
+    
+    .toggle.active { background: #16a34a; }
+    
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: white;
+      border-radius: 50%;
+      transition: left 0.2s;
+    }
+    
+    .toggle.active::after { left: 22px; }
+    
+    select {
+      background: #374151;
+      color: white;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+    
+    .manual-row {
+      display: flex;
+      gap: 6px;
+      padding: 8px 0;
+    }
+    
+    .manual-input {
+      flex: 1;
+      padding: 8px;
+      background: #1f2937;
+      border: 1px solid #4b5563;
+      border-radius: 4px;
+      color: white;
+      font-size: 0.85rem;
+    }
+    
+    .history-section { padding-top: 6px; }
+    
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    
+    .history-header h3 { color: #9ca3af; font-size: 0.75rem; }
+    
+    .btn-tiny {
+      background: #374151;
+      color: #d1d5db;
+      border: none;
+      padding: 3px 6px;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      margin-left: 4px;
+    }
+    
+    .history-list { max-height: 100px; overflow-y: auto; }
+    
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      background: #1f2937;
+      padding: 5px 8px;
+      border-radius: 3px;
+      margin-bottom: 2px;
+      font-size: 0.75rem;
+    }
+    
+    .history-serial { color: #86efac; }
+    .history-time { color: #6b7280; font-size: 0.6rem; }
+    
+    .empty { color: #6b7280; text-align: center; padding: 10px; font-size: 0.75rem; }
+    
+    canvas { display: none; }
+  </style>
+</head>
+<body>
+  <div class="camera-container">
+    <video id="video" autoplay playsinline muted></video>
+  </div>
+  
+  <div class="status-bar" id="statusBar">Tap Start Camera</div>
+  
+  <canvas id="canvas"></canvas>
+  
+  <div class="controls">
+    <div class="btn-row">
+      <button class="btn btn-primary" id="startBtn" onclick="toggleCamera()">📷 Start</button>
+      <button class="btn btn-scan" id="scanBtn" onclick="manualScan()" style="display:none;">🔍 Scan Now</button>
+    </div>
+    
+    <div class="detected-banner" id="detectedBanner">
+      <div class="detected-header">
+        <h3>Found <span id="detectedCount">0</span> serial(s)</h3>
+        <button class="btn-sm add" onclick="addAllDetected()">+ Add All</button>
+      </div>
+      <div class="detected-list" id="detectedList"></div>
+      <button class="btn btn-secondary" style="margin-top:8px;" onclick="skipAllDetected()">Skip All & Continue</button>
+    </div>
+    
+    <details class="debug-section">
+      <summary>🔧 Debug View</summary>
+      <div class="debug-images" id="debugImages"></div>
+      <div id="debugText">OCR output will appear here...</div>
+    </details>
+    
+    <div class="settings-row">
+      <label>Auto-scan</label>
+      <div class="toggle active" id="autoToggle" onclick="toggleAuto()"></div>
+    </div>
+    
+    <div class="settings-row">
+      <label>Interval</label>
+      <select id="intervalSelect" onchange="updateInterval()">
+        <option value="3000">3 sec</option>
+        <option value="4000" selected>4 sec</option>
+        <option value="5000">5 sec</option>
+      </select>
+    </div>
+    
+    <div class="manual-row">
+      <input type="text" id="manualInput" class="manual-input" placeholder="Manual: FC35..." oninput="this.value=this.value.toUpperCase()">
+      <button class="btn-sm add" onclick="addManual()">Add</button>
+    </div>
+    
+    <div class="history-section">
+      <div class="history-header">
+        <h3>History (<span id="count">0</span>)</h3>
+        <div>
+          <button class="btn-tiny" onclick="exportCSV()">CSV</button>
+          <button class="btn-tiny" style="background:#7f1d1d" onclick="clearHist()">Clear</button>
+        </div>
+      </div>
+      <div id="histList" class="history-list"><p class="empty">No scans yet</p></div>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    let stream = null;
+    let worker = null;
+    let scanTimer = null;
+    let autoScan = true;
+    let interval = 4000;
+    let detectedSerials = [];
+    let processing = false;
+    let scanCount = 0;
+    let history = JSON.parse(localStorage.getItem('fi-history') || '[]');
+    
+    renderHistory();
+    
+    async function toggleCamera() {
+      const btn = document.getElementById('startBtn');
+      const scanBtn = document.getElementById('scanBtn');
+      
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+        video.srcObject = null;
+        btn.textContent = '📷 Start';
+        btn.className = 'btn btn-primary';
+        scanBtn.style.display = 'none';
+        stopScan();
+        setStatus('Camera stopped');
+        return;
+      }
+      
+      btn.textContent = '⏳ Starting...';
+      btn.disabled = true;
+      
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        });
+        
+        video.srcObject = stream;
+        await video.play();
+        
+        btn.textContent = '⏹ Stop';
+        btn.className = 'btn btn-stop';
+        btn.disabled = false;
+        scanBtn.style.display = 'block';
+        
+        setStatus('Loading OCR engine...', 'working');
+        
+        if (!worker) {
+          worker = await Tesseract.createWorker('eng');
+          await worker.setParameters({
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:- ',
+            tessedit_pageseg_mode: '6'
+          });
+        }
+        
+        setStatus('Ready - scanning...');
+        if (autoScan) startScan();
+        
+      } catch (err) {
+        btn.textContent = '📷 Start';
+        btn.className = 'btn btn-primary';
+        btn.disabled = false;
+        setStatus('Error: ' + err.message, 'error');
+      }
+    }
+    
+    function startScan() {
+      stopScan();
+      scanTimer = setInterval(doScan, interval);
+    }
+    
+    function stopScan() {
+      if (scanTimer) clearInterval(scanTimer);
+      scanTimer = null;
+    }
+    
+    function toggleAuto() {
+      autoScan = !autoScan;
+      document.getElementById('autoToggle').classList.toggle('active', autoScan);
+      if (stream && autoScan) startScan();
+      else stopScan();
+    }
+    
+    function updateInterval() {
+      interval = parseInt(document.getElementById('intervalSelect').value);
+      if (autoScan && stream) startScan();
+    }
+    
+    function manualScan() {
+      if (stream && !processing) doScan();
+    }
+    
+    // Multiple preprocessing passes
+    function preprocessImage(imageData, mode) {
+      const d = new Uint8ClampedArray(imageData.data);
+      
+      for (let i = 0; i < d.length; i += 4) {
+        let g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+        
+        switch(mode) {
+          case 'invert-high':
+            g = 255 - g;
+            g = ((g/255 - 0.5) * 3.5 + 0.5) * 255;
+            g = g > 70 ? 255 : 0;
+            break;
+          case 'invert-low':
+            g = 255 - g;
+            g = ((g/255 - 0.5) * 2.5 + 0.5) * 255;
+            g = g > 100 ? 255 : 0;
+            break;
+          case 'invert-mid':
+            g = 255 - g;
+            g = ((g/255 - 0.5) * 3 + 0.5) * 255;
+            g = g > 85 ? 255 : 0;
+            break;
+          case 'normal-high':
+            g = ((g/255 - 0.5) * 3 + 0.5) * 255;
+            g = g > 140 ? 255 : 0;
+            break;
+          case 'normal-low':
+            g = ((g/255 - 0.5) * 2.5 + 0.5) * 255;
+            g = g > 120 ? 255 : 0;
+            break;
+        }
+        
+        g = Math.max(0, Math.min(255, g));
+        d[i] = d[i+1] = d[i+2] = g;
+      }
+      
+      return new ImageData(d, imageData.width, imageData.height);
+    }
+    
+    async function doScan() {
+      if (!stream || processing || detectedSerials.length > 0) return;
+      if (!video.videoWidth) return;
+      
+      processing = true;
+      scanCount++;
+      setStatus(`Scanning #${scanCount}...`, 'working');
+      
+      const foundSerials = new Map(); // serial -> confidence count
+      const debugImagesHtml = [];
+      let debugOutput = '';
+      
+      try {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        
+        canvas.width = vw;
+        canvas.height = vh;
+        ctx.drawImage(video, 0, 0);
+        
+        const originalImageData = ctx.getImageData(0, 0, vw, vh);
+        
+        // Run multiple passes with different preprocessing
+        const modes = ['invert-high', 'invert-mid', 'invert-low', 'normal-high', 'normal-low'];
+        
+        for (const mode of modes) {
+          const processed = preprocessImage(originalImageData, mode);
+          
+          const tmp = document.createElement('canvas');
+          tmp.width = vw;
+          tmp.height = vh;
+          tmp.getContext('2d').putImageData(processed, 0, 0);
+          const dataUrl = tmp.toDataURL('image/png');
+          
+          // Save first 3 for debug display
+          if (debugImagesHtml.length < 3) {
+            debugImagesHtml.push(`<img src="${dataUrl}" title="${mode}">`);
+          }
+          
+          // OCR this pass
+          const { data: { text } } = await worker.recognize(dataUrl);
+          const serials = findSerials(text);
+          
+          debugOutput += `[${mode}]: ${text.replace(/\n/g,' ').substring(0,50)}...\n`;
+          
+          // Add to found with confidence
+          serials.forEach(s => {
+            foundSerials.set(s, (foundSerials.get(s) || 0) + 1);
+          });
+        }
+        
+        // Update debug display
+        document.getElementById('debugImages').innerHTML = debugImagesHtml.join('');
+        document.getElementById('debugText').textContent = debugOutput + 
+          '\nFound: ' + (foundSerials.size ? [...foundSerials.keys()].join(', ') : 'None');
+        
+        // Filter out already scanned and sort by confidence
+        const newSerials = [...foundSerials.entries()]
+          .filter(([s]) => !history.some(h => h.serial === s))
+          .sort((a, b) => b[1] - a[1])
+          .map(([serial, conf]) => ({ serial, confidence: conf }));
+        
+        if (newSerials.length > 0) {
+          detectedSerials = newSerials;
+          showDetected();
+          stopScan();
+          if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+          setStatus(`Found ${newSerials.length} new serial(s)!`, 'found');
+        } else if (foundSerials.size > 0) {
+          setStatus('All found serials already in history');
+        } else {
+          setStatus('No serials found - keep scanning');
+        }
+        
+      } catch (e) {
+        document.getElementById('debugText').textContent = 'Error: ' + e.message;
+        console.error(e);
+        setStatus('Scan error', 'error');
+      }
+      
+      processing = false;
+    }
+    
+    function findSerials(text) {
+      const out = new Set();
+      const clean = text.toUpperCase().replace(/[^A-Z0-9\s:]/g, ' ');
+      
+      // FC35 pattern
+      const fc35 = clean.match(/FC35[A-Z0-9]{6,10}/g);
+      if (fc35) fc35.forEach(s => out.add(s));
+      
+      // EC35, FG35 (common OCR errors)
+      const ocr35 = clean.match(/[EF][CG]35[A-Z0-9]{6,10}/g);
+      if (ocr35) ocr35.forEach(s => out.add(s.replace(/^[EF][CG]/, 'FC')));
+      
+      // After SN: or SN
+      const snMatch = /SN[:\s]+([A-Z0-9]{10,14})/g;
+      let m;
+      while ((m = snMatch.exec(clean)) !== null) {
+        out.add(m[1]);
+      }
+      
+      // Fix common OCR errors
+      return [...out].map(s => 
+        s.replace(/O/g, '0')
+         .replace(/I/g, '1')
+         .replace(/S(?=\d)/g, '5')
+         .replace(/B(?=\d)/g, '8')
+         .replace(/Z(?=\d)/g, '2')
+      );
+    }
+    
+    function showDetected() {
+      document.getElementById('detectedCount').textContent = detectedSerials.length;
+      
+      const list = document.getElementById('detectedList');
+      list.innerHTML = detectedSerials.map((item, i) => {
+        const conf = item.confidence >= 4 ? '●●●●' : 
+                     item.confidence >= 3 ? '●●●○' : 
+                     item.confidence >= 2 ? '●●○○' : '●○○○';
+        return `
+          <div class="detected-item">
+            <div>
+              <span class="detected-serial">${item.serial}</span>
+              <span class="detected-confidence">${conf}</span>
+            </div>
+            <div>
+              <button class="btn-sm add" onclick="addOne(${i})">Add</button>
+              <button class="btn-sm skip" onclick="skipOne(${i})">✕</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      
+      document.getElementById('detectedBanner').classList.add('show');
+    }
+    
+    function hideDetected() {
+      document.getElementById('detectedBanner').classList.remove('show');
+      detectedSerials = [];
+    }
+    
+    function addOne(i) {
+      const item = detectedSerials[i];
+      if (item) {
+        addToHistory(item.serial);
+        detectedSerials.splice(i, 1);
+        if (detectedSerials.length === 0) {
+          hideDetected();
+          if (autoScan && stream) startScan();
+        } else {
+          showDetected();
+        }
+      }
+    }
+    
+    function skipOne(i) {
+      detectedSerials.splice(i, 1);
+      if (detectedSerials.length === 0) {
+        hideDetected();
+        if (autoScan && stream) startScan();
+      } else {
+        showDetected();
+      }
+    }
+    
+    function addAllDetected() {
+      detectedSerials.forEach(item => addToHistory(item.serial));
+      hideDetected();
+      setStatus(`Added ${detectedSerials.length} serials`);
+      if (autoScan && stream) startScan();
+    }
+    
+    function skipAllDetected() {
+      hideDetected();
+      setStatus('Skipped - continuing scan');
+      if (autoScan && stream) startScan();
+    }
+    
+    function addManual() {
+      const inp = document.getElementById('manualInput');
+      const s = inp.value.replace(/[^A-Z0-9]/gi,'').toUpperCase();
+      if (s.length >= 10) {
+        addToHistory(s);
+        inp.value = '';
+        setStatus('Added: ' + s);
+      }
+    }
+    
+    function addToHistory(serial) {
+      if (history.some(x => x.serial === serial)) return;
+      history.unshift({ serial, timestamp: new Date().toISOString() });
+      localStorage.setItem('fi-history', JSON.stringify(history));
+      renderHistory();
+    }
+    
+    function renderHistory() {
+      const list = document.getElementById('histList');
+      document.getElementById('count').textContent = history.length;
+      
+      if (!history.length) {
+        list.innerHTML = '<p class="empty">No scans yet</p>';
+        return;
+      }
+      
+      list.innerHTML = history.slice(0,15).map(h => `
+        <div class="history-item">
+          <span class="history-serial">${h.serial}</span>
+          <span class="history-time">${new Date(h.timestamp).toLocaleTimeString()}</span>
+        </div>
+      `).join('');
+    }
+    
+    function clearHist() {
+      if (confirm('Clear all?')) {
+        history = [];
+        localStorage.setItem('fi-history', '[]');
+        renderHistory();
+      }
+    }
+    
+    function exportCSV() {
+      if (!history.length) return;
+      const csv = 'Serial,Timestamp\n' + history.map(h => h.serial+','+h.timestamp).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+      a.download = 'fi-serials.csv';
+      a.click();
+    }
+    
+    function setStatus(msg, type = '') {
+      const bar = document.getElementById('statusBar');
+      bar.textContent = msg;
+      bar.className = 'status-bar' + (type ? ' ' + type : '');
+    }
+  </script>
+</body>
+</html>
