@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fi Serial Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'SF Mono', 'Menlo', monospace;
+      background: #111827;
+      color: #f3f4f6;
+      min-height: 100vh;
+      padding: 16px;
+      padding-bottom: 100px;
+    }
+    h1 { color: #4ade80; font-size: 1.25rem; margin-bottom: 16px; }
+    .btn {
+      width: 100%;
+      padding: 16px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+    .btn-primary { background: #16a34a; color: white; }
+    .btn-primary:disabled { background: #4b5563; }
+    .btn-secondary { background: #374151; color: white; }
+    .hidden { display: none; }
+    #preview {
+      width: 100%;
+      max-height: 150px;
+      object-fit: contain;
+      background: #000;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    #status {
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 0.85rem;
+    }
+    #status.error { border-color: #dc2626; color: #fca5a5; }
+    #status.success { border-color: #16a34a; color: #86efac; }
+    .progress-bar {
+      height: 4px;
+      background: #374151;
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #4ade80;
+      transition: width 0.3s;
+    }
+    .detected {
+      background: #1f2937;
+      border: 1px solid #16a34a;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .detected h3 { color: #4ade80; font-size: 0.85rem; margin-bottom: 8px; }
+    .serial-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .serial-code { color: #86efac; font-size: 1.1rem; letter-spacing: 1px; }
+    .btn-add {
+      background: #16a34a;
+      color: white;
+      border: none;
+      padding: 6px 16px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .manual-entry {
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .manual-entry h3 { color: #9ca3af; font-size: 0.85rem; margin-bottom: 8px; }
+    .manual-row { display: flex; gap: 8px; }
+    .manual-input {
+      flex: 1;
+      padding: 10px;
+      background: #111827;
+      border: 1px solid #4b5563;
+      border-radius: 4px;
+      color: white;
+      font-family: inherit;
+      font-size: 1rem;
+      letter-spacing: 2px;
+    }
+    .history { margin-top: 16px; }
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .history-header h3 { color: #9ca3af; font-size: 0.85rem; }
+    .history-actions { display: flex; gap: 8px; }
+    .btn-small {
+      background: #374151;
+      color: #d1d5db;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+    }
+    .btn-small.danger { background: #7f1d1d; }
+    .history-list { max-height: 200px; overflow-y: auto; }
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #1f2937;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 4px;
+    }
+    .history-serial { color: #86efac; }
+    .history-time { color: #6b7280; font-size: 0.7rem; }
+    .sync-badge {
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .sync-badge.synced { background: #14532d; color: #4ade80; }
+    .sync-badge.local { background: #374151; color: #9ca3af; }
+    .settings {
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .settings h3 { color: #4ade80; font-size: 0.85rem; margin-bottom: 8px; }
+    .settings input {
+      width: 100%;
+      padding: 8px;
+      background: #111827;
+      border: 1px solid #4b5563;
+      border-radius: 4px;
+      color: white;
+      font-size: 0.8rem;
+    }
+    .settings p { color: #6b7280; font-size: 0.7rem; margin-top: 6px; }
+    .empty { color: #6b7280; text-align: center; padding: 20px; }
+    canvas { display: none; }
+  </style>
+</head>
+<body>
+  <h1>📷 Fi Serial Scanner</h1>
+  <input type="file" id="fileInput" accept="image/*" capture="environment" class="hidden">
+  <canvas id="canvas"></canvas>
+  <button class="btn btn-primary" id="scanBtn" onclick="triggerCapture()">📷 Scan Serial Number</button>
+  <img id="preview" class="hidden">
+  <div id="status" class="hidden"></div>
+  <div id="detected" class="detected hidden">
+    <h3>Detected Serial Numbers</h3>
+    <div id="detectedList"></div>
+  </div>
+  <div class="manual-entry">
+    <h3>Manual Entry</h3>
+    <div class="manual-row">
+      <input type="text" id="manualInput" class="manual-input" placeholder="FC35L905069" oninput="this.value = this.value.toUpperCase()" onkeydown="if(event.key === 'Enter') addManual()">
+      <button class="btn-add" onclick="addManual()">ADD</button>
+    </div>
+  </div>
+  <button class="btn btn-secondary" onclick="toggleSettings()">⚙️ Settings</button>
+  <div id="settings" class="settings hidden">
+    <h3>Google Sheets Integration</h3>
+    <input type="url" id="sheetsUrl" placeholder="Apps Script Web App URL" onchange="saveSettings()">
+    <p>Deploy Apps Script with doPost() that appends serial + timestamp.</p>
+  </div>
+  <div class="history">
+    <div class="history-header">
+      <h3>Scan History (<span id="historyCount">0</span>)</h3>
+      <div class="history-actions">
+        <button class="btn-small" onclick="exportCSV()">Export CSV</button>
+        <button class="btn-small danger" onclick="clearHistory()">Clear</button>
+      </div>
+    </div>
+    <div id="historyList" class="history-list"><p class="empty">No scans yet</p></div>
+  </div>
+  <script>
+    let history = JSON.parse(localStorage.getItem('fi-scanner-history') || '[]');
+    let sheetsUrl = localStorage.getItem('fi-scanner-sheets-url') || '';
+    let detectedSerials = [];
+    let isProcessing = false;
+    document.getElementById('sheetsUrl').value = sheetsUrl;
+    renderHistory();
+    function triggerCapture() {
+      if (isProcessing) return;
+      document.getElementById('fileInput').click();
+    }
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      isProcessing = true;
+      updateStatus('Loading image...', 'info');
+      document.getElementById('scanBtn').disabled = true;
+      document.getElementById('scanBtn').textContent = '⏳ Processing...';
+      try {
+        const base64 = await loadImage(file);
+        const preview = document.getElementById('preview');
+        preview.src = base64;
+        preview.classList.remove('hidden');
+        updateStatus('Preprocessing image...', 'info', 10);
+        const processed = await preprocessImage(base64);
+        updateStatus('Running OCR (this may take 10-20 seconds)...', 'info', 20);
+        const text = await runOCR(processed);
+        const serials = findSerials(text);
+        if (serials.length > 0) {
+          detectedSerials = serials;
+          showDetected(serials);
+          updateStatus(`Found ${serials.length} serial(s)!`, 'success');
+        } else {
+          updateStatus('No serial numbers found. Try adjusting angle/lighting or enter manually.', 'error');
+          document.getElementById('detected').classList.add('hidden');
+        }
+      } catch (err) {
+        updateStatus(`Error: ${err.message}`, 'error');
+      } finally {
+        isProcessing = false;
+        document.getElementById('scanBtn').disabled = false;
+        document.getElementById('scanBtn').textContent = '📷 Scan Serial Number';
+        e.target.value = '';
+      }
+    });
+    function loadImage(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('Failed to load image'));
+        reader.readAsDataURL(file);
+      });
+    }
+    function preprocessImage(base64) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        img.onload = () => {
+          const maxWidth = 1000;
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth) {
+            height = (height / width) * maxWidth;
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          ctx.drawImage(img, 0, 0, width, height);
+          const imageData = ctx.getImageData(0, 0, width, height);
+          const data = imageData.data;
+          for (let i = 0; i < data.length; i += 4) {
+            const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            const contrast = 2.0;
+            const factor = (259 * (contrast * 100 + 255)) / (255 * (259 - contrast * 100));
+            const enhanced = factor * (gray - 128) + 128;
+            const threshold = enhanced > 140 ? 255 : 0;
+            data[i] = threshold;
+            data[i + 1] = threshold;
+            data[i + 2] = threshold;
+          }
+          ctx.putImageData(imageData, 0, 0);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.onerror = () => resolve(base64);
+        img.src = base64;
+      });
+    }
+    async function runOCR(imageData) {
+      const worker = await Tesseract.createWorker('eng', 1, {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            const pct = Math.round(20 + m.progress * 80);
+            updateStatus(`Recognizing text... ${Math.round(m.progress * 100)}%`, 'info', pct);
+          }
+        }
+      });
+      await worker.setParameters({
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:- ',
+        tessedit_pageseg_mode: '6',
+      });
+      const { data: { text } } = await worker.recognize(imageData);
+      await worker.terminate();
+      return text;
+    }
+    function findSerials(text) {
+      const serials = [];
+      const cleaned = text.toUpperCase().replace(/[^A-Z0-9\s:]/g, ' ');
+      const fc35Pattern = /FC35[A-Z0-9]{6,10}/g;
+      const fc35Matches = cleaned.match(fc35Pattern);
+      if (fc35Matches) serials.push(...fc35Matches);
+      const snPattern = /SN[:\s]*([A-Z0-9]{10,14})/g;
+      let match;
+      while ((match = snPattern.exec(cleaned)) !== null) {
+        if (!serials.includes(match[1])) serials.push(match[1]);
+      }
+      const genericPattern = /\b([A-Z]{2,4}[0-9]{2}[A-Z0-9]{6,8})\b/g;
+      while ((match = genericPattern.exec(cleaned)) !== null) {
+        if (!serials.includes(match[1]) && match[1].length >= 10) serials.push(match[1]);
+      }
+      return [...new Set(serials)];
+    }
+    function showDetected(serials) {
+      const container = document.getElementById('detected');
+      const list = document.getElementById('detectedList');
+      list.innerHTML = serials.map((serial, i) => `<div class="serial-row"><span class="serial-code">${serial}</span><button class="btn-add" onclick="addDetected(${i})">ADD</button></div>`).join('');
+      container.classList.remove('hidden');
+    }
+    function addDetected(index) {
+      const serial = detectedSerials[index];
+      if (serial) {
+        addToHistory(serial);
+        detectedSerials.splice(index, 1);
+        if (detectedSerials.length === 0) {
+          document.getElementById('detected').classList.add('hidden');
+        } else {
+          showDetected(detectedSerials);
+        }
+      }
+    }
+    function addManual() {
+      const input = document.getElementById('manualInput');
+      const serial = input.value.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+      if (serial.length >= 8) {
+        addToHistory(serial);
+        input.value = '';
+        updateStatus(`Added: ${serial}`, 'success');
+      } else {
+        updateStatus('Serial must be at least 8 characters', 'error');
+      }
+    }
+    function addToHistory(serial) {
+      if (history.some(h => h.serial === serial)) {
+        updateStatus(`Duplicate: ${serial} already in history`, 'error');
+        return;
+      }
+      const entry = { id: Date.now(), serial: serial, timestamp: new Date().toISOString(), synced: false };
+      history.unshift(entry);
+      saveHistory();
+      renderHistory();
+      if (sheetsUrl) syncToSheets(entry);
+    }
+    async function syncToSheets(entry) {
+      if (!sheetsUrl) return;
+      try {
+        await fetch(sheetsUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: entry.serial, timestamp: entry.timestamp }) });
+        entry.synced = true;
+        saveHistory();
+        renderHistory();
+      } catch (err) { console.error('Sync failed:', err); }
+    }
+    function renderHistory() {
+      const list = document.getElementById('historyList');
+      const count = document.getElementById('historyCount');
+      count.textContent = history.length;
+      if (history.length === 0) { list.innerHTML = '<p class="empty">No scans yet</p>'; return; }
+      list.innerHTML = history.map(h => `<div class="history-item"><div><div class="history-serial">${h.serial}</div><div class="history-time">${new Date(h.timestamp).toLocaleString()}</div></div><span class="sync-badge ${h.synced ? 'synced' : 'local'}">${h.synced ? '✓ Synced' : 'Local'}</span></div>`).join('');
+    }
+    function saveHistory() { localStorage.setItem('fi-scanner-history', JSON.stringify(history)); }
+    function clearHistory() { if (confirm('Clear all scan history?')) { history = []; saveHistory(); renderHistory(); updateStatus('History cleared', 'info'); } }
+    function exportCSV() {
+      if (history.length === 0) return;
+      const csv = ['Serial,Timestamp,Synced', ...history.map(h => `${h.serial},${h.timestamp},${h.synced}`)].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fi-serials-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      updateStatus('CSV exported', 'success');
+    }
+    function toggleSettings() { document.getElementById('settings').classList.toggle('hidden'); }
+    function saveSettings() { sheetsUrl = document.getElementById('sheetsUrl').value; localStorage.setItem('fi-scanner-sheets-url', sheetsUrl); updateStatus('Settings saved', 'success'); }
+    function updateStatus(message, type, progress = null) {
+      const status = document.getElementById('status');
+      status.classList.remove('hidden', 'error', 'success');
+      if (type === 'error') status.classList.add('error');
+      if (type === 'success') status.classList.add('success');
+      let html = message;
+      if (progress !== null) html += `<div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div>`;
+      status.innerHTML = html;
+      if (type === 'success') setTimeout(() => { status.classList.add('hidden'); }, 3000);
+    }
+  </script>
+</body>
+</html>
