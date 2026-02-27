@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fi Live Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'SF Mono', 'Menlo', monospace;
+      background: #000;
+      color: #f3f4f6;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    
+    .camera-container {
+      position: relative;
+      width: 100%;
+      height: 50vh;
+      background: #000;
+    }
+    
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .scan-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 90%;
+      height: 100px;
+      border: 3px solid #4ade80;
+      border-radius: 8px;
+      pointer-events: none;
+    }
+    
+    .status-bar {
+      padding: 10px;
+      background: #1f2937;
+      text-align: center;
+      font-size: 0.85rem;
+    }
+    
+    .status-bar.found { background: #16a34a; }
+    .status-bar.error { background: #dc2626; }
+    
+    .controls {
+      padding: 12px;
+      background: #111827;
+    }
+    
+    .btn {
+      width: 100%;
+      padding: 14px;
+      font-size: 1rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+    
+    .btn-primary { background: #16a34a; color: white; }
+    .btn-stop { background: #dc2626; color: white; }
+    .btn-secondary { background: #374151; color: white; }
+    .btn-manual { background: #2563eb; color: white; }
+    
+    .debug-section {
+      background: #1e293b;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    
+    .debug-section h4 {
+      color: #fbbf24;
+      font-size: 0.75rem;
+      margin-bottom: 8px;
+    }
+    
+    #debugImage {
+      width: 100%;
+      height: 60px;
+      object-fit: contain;
+      background: #000;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    
+    #debugText {
+      background: #0f172a;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      color: #94a3b8;
+      max-height: 60px;
+      overflow-y: auto;
+      word-break: break-all;
+    }
+    
+    .detected-banner {
+      background: #14532d;
+      border: 2px solid #4ade80;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+      display: none;
+    }
+    
+    .detected-banner.show { display: block; }
+    
+    .detected-serial {
+      font-size: 1.3rem;
+      color: #4ade80;
+      text-align: center;
+      letter-spacing: 2px;
+      margin-bottom: 10px;
+    }
+    
+    .detected-actions { display: flex; gap: 10px; }
+    .detected-actions .btn { flex: 1; margin: 0; }
+    
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #374151;
+    }
+    
+    .settings-row label { color: #9ca3af; font-size: 0.8rem; }
+    
+    .toggle {
+      width: 46px;
+      height: 26px;
+      background: #374151;
+      border-radius: 13px;
+      position: relative;
+      cursor: pointer;
+    }
+    
+    .toggle.active { background: #16a34a; }
+    
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 22px;
+      height: 22px;
+      background: white;
+      border-radius: 50%;
+      transition: left 0.2s;
+    }
+    
+    .toggle.active::after { left: 22px; }
+    
+    select {
+      background: #374151;
+      color: white;
+      border: none;
+      padding: 5px 8px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+    
+    .manual-row {
+      display: flex;
+      gap: 8px;
+      padding: 8px 0;
+    }
+    
+    .manual-input {
+      flex: 1;
+      padding: 10px;
+      background: #1f2937;
+      border: 1px solid #4b5563;
+      border-radius: 4px;
+      color: white;
+      font-size: 0.9rem;
+    }
+    
+    .history-section { padding-top: 8px; }
+    
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    
+    .history-header h3 { color: #9ca3af; font-size: 0.8rem; }
+    
+    .btn-small {
+      background: #374151;
+      color: #d1d5db;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      margin-left: 4px;
+    }
+    
+    .history-list { max-height: 120px; overflow-y: auto; }
+    
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      background: #1f2937;
+      padding: 6px 8px;
+      border-radius: 4px;
+      margin-bottom: 3px;
+      font-size: 0.8rem;
+    }
+    
+    .history-serial { color: #86efac; }
+    .history-time { color: #6b7280; font-size: 0.65rem; }
+    
+    .empty { color: #6b7280; text-align: center; padding: 12px; font-size: 0.8rem; }
+    
+    canvas { display: none; }
+  </style>
+</head>
+<body>
+  <div class="camera-container">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="scan-overlay"></div>
+  </div>
+  
+  <div class="status-bar" id="statusBar">Tap Start Camera</div>
+  
+  <canvas id="canvas"></canvas>
+  
+  <div class="controls">
+    <button class="btn btn-primary" id="startBtn" onclick="toggleCamera()">📷 Start Camera</button>
+    <button class="btn btn-manual" id="scanNowBtn" onclick="manualScan()" style="display:none;">🔍 Scan Now</button>
+    
+    <div class="debug-section">
+      <h4>🔧 Debug View (what OCR sees)</h4>
+      <img id="debugImage" src="">
+      <div id="debugText">OCR output will appear here...</div>
+    </div>
+    
+    <div class="detected-banner" id="detectedBanner">
+      <div class="detected-serial" id="detectedSerial"></div>
+      <div class="detected-actions">
+        <button class="btn btn-primary" onclick="addDetected()">✓ Add</button>
+        <button class="btn btn-secondary" onclick="skipDetected()">Skip</button>
+      </div>
+    </div>
+    
+    <div class="settings-row">
+      <label>Auto-scan</label>
+      <div class="toggle active" id="autoToggle" onclick="toggleAuto()"></div>
+    </div>
+    
+    <div class="settings-row">
+      <label>Interval</label>
+      <select id="intervalSelect" onchange="updateInterval()">
+        <option value="2000">2 sec</option>
+        <option value="3000" selected>3 sec</option>
+        <option value="5000">5 sec</option>
+      </select>
+    </div>
+    
+    <div class="manual-row">
+      <input type="text" id="manualInput" class="manual-input" placeholder="Manual: FC35..." oninput="this.value=this.value.toUpperCase()">
+      <button class="btn btn-primary" style="width:auto;margin:0;padding:10px 14px;" onclick="addManual()">Add</button>
+    </div>
+    
+    <div class="history-section">
+      <div class="history-header">
+        <h3>History (<span id="count">0</span>)</h3>
+        <div>
+          <button class="btn-small" onclick="exportCSV()">CSV</button>
+          <button class="btn-small" style="background:#7f1d1d" onclick="clearHist()">Clear</button>
+        </div>
+      </div>
+      <div id="histList" class="history-list"><p class="empty">No scans yet</p></div>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const debugImage = document.getElementById('debugImage');
+    const debugText = document.getElementById('debugText');
+    
+    let stream = null;
+    let worker = null;
+    let scanTimer = null;
+    let autoScan = true;
+    let interval = 3000;
+    let currentDetected = null;
+    let processing = false;
+    let scanCount = 0;
+    let history = JSON.parse(localStorage.getItem('fi-history') || '[]');
+    
+    renderHistory();
+    
+    async function toggleCamera() {
+      const btn = document.getElementById('startBtn');
+      const scanBtn = document.getElementById('scanNowBtn');
+      
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+        video.srcObject = null;
+        btn.textContent = '📷 Start Camera';
+        btn.className = 'btn btn-primary';
+        scanBtn.style.display = 'none';
+        stopScan();
+        setStatus('Camera stopped');
+        return;
+      }
+      
+      btn.textContent = '⏳ Starting...';
+      btn.disabled = true;
+      
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false
+        });
+        
+        video.srcObject = stream;
+        await video.play();
+        
+        btn.textContent = '⏹ Stop Camera';
+        btn.className = 'btn btn-stop';
+        btn.disabled = false;
+        scanBtn.style.display = 'block';
+        
+        setStatus('Loading OCR engine...');
+        
+        if (!worker) {
+          worker = await Tesseract.createWorker('eng');
+          await worker.setParameters({
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:- ',
+            tessedit_pageseg_mode: '6'
+          });
+        }
+        
+        setStatus('Ready - scanning...');
+        if (autoScan) startScan();
+        
+      } catch (err) {
+        btn.textContent = '📷 Start Camera';
+        btn.className = 'btn btn-primary';
+        btn.disabled = false;
+        setStatus('Error: ' + err.message, 'error');
+      }
+    }
+    
+    function startScan() {
+      stopScan();
+      scanTimer = setInterval(doScan, interval);
+    }
+    
+    function stopScan() {
+      if (scanTimer) clearInterval(scanTimer);
+      scanTimer = null;
+    }
+    
+    function toggleAuto() {
+      autoScan = !autoScan;
+      document.getElementById('autoToggle').classList.toggle('active', autoScan);
+      if (stream && autoScan) startScan();
+      else stopScan();
+    }
+    
+    function updateInterval() {
+      interval = parseInt(document.getElementById('intervalSelect').value);
+      if (autoScan && stream) startScan();
+    }
+    
+    function manualScan() {
+      if (stream && !processing) doScan();
+    }
+    
+    async function doScan() {
+      if (!stream || processing || currentDetected) return;
+      if (!video.videoWidth) {
+        debugText.textContent = 'Video not ready yet...';
+        return;
+      }
+      
+      processing = true;
+      scanCount++;
+      setStatus(`Scanning... (#${scanCount})`);
+      
+      try {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        
+        canvas.width = vw;
+        canvas.height = vh;
+        ctx.drawImage(video, 0, 0);
+        
+        // Capture FULL frame (not just center strip)
+        const imgData = ctx.getImageData(0, 0, vw, vh);
+        const d = imgData.data;
+        
+        // Preprocess: convert to high contrast B&W
+        // Try INVERTED (for white text on dark bg)
+        for (let i = 0; i < d.length; i += 4) {
+          let g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+          
+          // Invert
+          g = 255 - g;
+          
+          // Boost contrast
+          g = ((g / 255 - 0.5) * 3 + 0.5) * 255;
+          g = Math.max(0, Math.min(255, g));
+          
+          // Threshold
+          g = g > 80 ? 255 : 0;
+          
+          d[i] = d[i+1] = d[i+2] = g;
+        }
+        
+        // Create processed image
+        const tmp = document.createElement('canvas');
+        tmp.width = vw;
+        tmp.height = vh;
+        tmp.getContext('2d').putImageData(imgData, 0, 0);
+        const processedDataUrl = tmp.toDataURL('image/png');
+        
+        // Show in debug
+        debugImage.src = processedDataUrl;
+        
+        // OCR
+        debugText.textContent = 'Running OCR...';
+        const { data: { text } } = await worker.recognize(processedDataUrl);
+        
+        // Show raw text
+        const cleanText = text.replace(/\n/g, ' ').trim();
+        debugText.textContent = `Raw: "${cleanText}"`;
+        
+        // Find serials
+        const serials = findSerials(text);
+        
+        if (serials.length > 0) {
+          debugText.textContent += `\n✓ Found: ${serials.join(', ')}`;
+          
+          const s = serials[0];
+          if (!history.some(x => x.serial === s)) {
+            currentDetected = s;
+            showDetected(s);
+            stopScan();
+            if (navigator.vibrate) navigator.vibrate(200);
+          } else {
+            setStatus('Already have: ' + s);
+          }
+        } else {
+          debugText.textContent += '\n✗ No FC35 pattern found';
+          setStatus('No serial found - keep scanning');
+        }
+        
+      } catch (e) {
+        debugText.textContent = 'Error: ' + e.message;
+        console.error(e);
+      }
+      
+      processing = false;
+    }
+    
+    function findSerials(text) {
+      const out = [];
+      const clean = text.toUpperCase().replace(/[^A-Z0-9\s:]/g, ' ');
+      
+      // Primary: FC35 pattern
+      const fc35 = clean.match(/FC35[A-Z0-9]{6,10}/g);
+      if (fc35) out.push(...fc35);
+      
+      // After SN: or SN
+      const snMatch = /SN[:\s]+([A-Z0-9]{10,14})/g;
+      let m;
+      while ((m = snMatch.exec(clean)) !== null) {
+        if (!out.includes(m[1])) out.push(m[1]);
+      }
+      
+      // Fix OCR errors and return unique
+      return [...new Set(out.map(s => 
+        s.replace(/^[EF][CG]/, 'FC')
+         .replace(/O/g, '0')
+         .replace(/I/g, '1')
+         .replace(/S(?=\d)/g, '5')
+         .replace(/B(?=\d)/g, '8')
+      ))];
+    }
+    
+    function showDetected(s) {
+      document.getElementById('detectedSerial').textContent = s;
+      document.getElementById('detectedBanner').classList.add('show');
+      setStatus('FOUND: ' + s, 'found');
+    }
+    
+    function hideDetected() {
+      document.getElementById('detectedBanner').classList.remove('show');
+      currentDetected = null;
+      setStatus('Scanning...');
+    }
+    
+    function addDetected() {
+      if (currentDetected) {
+        addToHistory(currentDetected);
+        hideDetected();
+        if (autoScan && stream) startScan();
+      }
+    }
+    
+    function skipDetected() {
+      hideDetected();
+      if (autoScan && stream) startScan();
+    }
+    
+    function addManual() {
+      const inp = document.getElementById('manualInput');
+      const s = inp.value.replace(/[^A-Z0-9]/gi,'').toUpperCase();
+      if (s.length >= 10) {
+        addToHistory(s);
+        inp.value = '';
+      }
+    }
+    
+    function addToHistory(serial) {
+      if (history.some(x => x.serial === serial)) return;
+      history.unshift({ serial, timestamp: new Date().toISOString() });
+      localStorage.setItem('fi-history', JSON.stringify(history));
+      renderHistory();
+    }
+    
+    function renderHistory() {
+      const list = document.getElementById('histList');
+      document.getElementById('count').textContent = history.length;
+      
+      if (!history.length) {
+        list.innerHTML = '<p class="empty">No scans yet</p>';
+        return;
+      }
+      
+      list.innerHTML = history.slice(0,15).map(h => `
+        <div class="history-item">
+          <span class="history-serial">${h.serial}</span>
+          <span class="history-time">${new Date(h.timestamp).toLocaleTimeString()}</span>
+        </div>
+      `).join('');
+    }
+    
+    function clearHist() {
+      if (confirm('Clear all?')) {
+        history = [];
+        localStorage.setItem('fi-history', '[]');
+        renderHistory();
+      }
+    }
+    
+    function exportCSV() {
+      if (!history.length) return;
+      const csv = 'Serial,Timestamp\n' + history.map(h => h.serial+','+h.timestamp).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+      a.download = 'fi-serials.csv';
+      a.click();
+    }
+    
+    function setStatus(msg, type = '') {
+      const bar = document.getElementById('statusBar');
+      bar.textContent = msg;
+      bar.className = 'status-bar' + (type ? ' ' + type : '');
+    }
+  </script>
+</body>
+</html>
